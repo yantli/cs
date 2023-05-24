@@ -163,8 +163,9 @@ def zh_vector_finder(original_file_path, zh_word_vec_path):
 
 def vec_dict_saver(vec_dict, output_file):
     with open(output_file, 'w', encoding = 'utf-8') as f:
-        for vec in vec_dict.values():
-            f.writelines(vec)
+        for word, vec in vec_dict.items():
+            line = (word, str(vec))
+            f.writelines(line)
 
 def calculate_cosine_similarity(eng, zh):
     cosine_similarity = np.dot(eng, zh) / (np.linalg.norm(eng) * np.linalg.norm(zh))
