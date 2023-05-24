@@ -42,6 +42,18 @@
 # ./build_binary <ngram_path> <readable_ngram_path>
 ## where the <readable_ngram_path> is a .binary file
 
+## when training the cpm tokenized training texts, since <unk> is created by cpm tokenizer but not allowed in the ngram, used:
+# ./lmplz -o 5 --text <tokenized_text_path> --skip_symbols --arpa <ngram_path>
+## so all instances of <s>, </s>, and <unk> will be interpreted as whitespace.
 
+##############################
+
+# trying to use the trained ngrams to calculate probability
+# https://github.com/kpu/kenlm/blob/master/python/example.py
+# 5/22/2023
+
+import os
 import kenlm
 
+LM = os.path.join(os.path.dirname(__file__), '..', 'lm', 'test.arpa')
+model = kenlm.LanguageModel(LM)
