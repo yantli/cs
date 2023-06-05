@@ -12,6 +12,9 @@ import math
 import numpy as np
 import re
 from googletrans import Translator
+from scipy.spatial import KDTree
+import pickle
+
 
 def save_whole_file(original_file_path):
     whole_file = []
@@ -51,6 +54,69 @@ def word_collector(original_file_path):
     zh_words_trans = [word.lower() for word in zh_words_trans]
     
     return eng_words, trans_words, zh_words, zh_words_trans
+
+def create_KDtree(word_vec_path):
+    word_vectors = []
+    word_list = []
+    with open(word_vec_path,'r', encoding='utf-8') as vecfile:
+        for line in vecfile:
+            if len(line.split())>300:
+                vector = np.array(line.split()[-300:], dtype=np.float32)
+                word_vectors.append(vector)
+
+                vec_idx = line.index(' '.join(line.split()[-300:]))
+                word = line[:vec_idx-1]
+                word_list.append(word)
+    
+    word_vectors_array = np.array(word_vectors)
+    kdtree = KDTree(word_vectors_array)
+
+    return word_list, word_vectors_array, kdtree
+
+def save_kdtree(word_vec_path, output_file):
+    kdtree = create_KDtree(word_vec_path)[2]
+    with open(output_file, 'wb') as f:
+        pickle.dump(kdtree, f)
+
+def calculate_vec_distance(word_vec_path, lang):
+    results = []
+    eng_words = word_collector(original_file_path)[0]
+    zh_words = word_collector(original_file_path)[2]
+    traditional_zh_words = [chinese_converter.to_traditional(word) for word in zh_words]
+    word_list = create_KDtree(word_vec_path)[0]
+    word_vectors_array = create_KDtree(word_vec_path)[1]
+    kdtree = create_KDtree(word_vec_path)[2]
+    
+    if lang == 'eng':
+        for word in eng_words:
+            if word in word_list:
+                index = word_list.index(word)
+                query_vector = word_vectors_array[index]
+                distances, indices = kdtree.query(query_vector, k=6)
+                average_distance = sum(distances)/(len(distances)-1)
+                result = (word, index, average_distance, indices)
+            else:
+                result = (word)
+            results.append(result)
+
+    if lang == 'zh':
+        for word in zh_words:
+            if word in word_list:
+                index = word_list.index(word)
+                query_vector = word_vectors_array[index]
+                distances, indices = kdtree.query(query_vector, k=6)
+                average_distance = sum(distances)/(len(distances)-1)
+                result = (word, index, average_distance, indices, 'simplified')
+            elif traditional_zh_words[zh_words.index(word)] in word_list:
+                index = word_list.index(traditional_zh_words[zh_words.index(word)])
+                query_vector = word_vectors_array[index]
+                distances, indices = kdtree.query(query_vector, k=6)
+                average_distance = sum(distances)/(len(distances)-1)
+                result = (word, index, average_distance, indices, traditional_zh_words[zh_words.index(word)])
+            else:
+                result = (word)
+            results.append(result)                
+    return results
 
 # def eng_vector_finder(original_file_path, eng_word_vec_path):
 #     eng_words = word_collector(original_file_path)[0]
@@ -164,19 +230,21 @@ def zh_vector_finder(original_file_path, zh_word_vec_path):
 def vec_dict_saver(vec_dict, output_file):
     with open(output_file, 'w', encoding = 'utf-8') as f:
         for word, vec in vec_dict.items():
-            line = (word, str(vec))
+            line = (word, str(vec),'\n')
             f.writelines(line)
 
-def calculate_cosine_similarity(eng, zh):
-    cosine_similarity = np.dot(eng, zh) / (np.linalg.norm(eng) * np.linalg.norm(zh))
+def calculate_cosine_similarity(vec1, vec2):
+    cosine_similarity = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
     return cosine_similarity
 
 def gather_cos_similarity(original_file_path, eng_word_vec_path, zh_word_vec_path):
     cs_lines = save_whole_file(original_file_path)[1]
+    non_cs_lines = save_whole_file(original_file_path)[2]
+    zh_words_trans = word_collector(original_file_path)[3]
     eng_vec_dict = eng_vector_finder_easy(original_file_path, eng_word_vec_path)[1]
     zh_vec_dict = zh_vector_finder(original_file_path, zh_word_vec_path)
-    cos_sim_list = []
-
+    
+    cos_sim_list_cswords = []
     for line in cs_lines:
         eng_word = line[7]
         trans_word = line[8]
@@ -186,14 +254,29 @@ def gather_cos_similarity(original_file_path, eng_word_vec_path, zh_word_vec_pat
             trans_wordvec = zh_vec_dict.get(trans_word)
             cos_sim = calculate_cosine_similarity(eng_wordvec, trans_wordvec)
             entry = (sent_id, eng_word, trans_word, cos_sim)
-            cos_sim_list.append(entry)
-    
-    return cos_sim_list
+            cos_sim_list_cswords.append(entry)
+
+    cos_sim_list_noncswords = []
+    for i in range(len(non_cs_lines)):
+        zh_word = non_cs_lines[i][8]
+        eng_trans = zh_words_trans[i]
+        sent_id = non_cs_lines[i][2]
+        if eng_trans in eng_vec_dict.keys() and zh_word in zh_vec_dict.keys():
+            eng_wordvec = eng_vec_dict.get(eng_trans)
+            zh_wordvec = zh_vec_dict.get(zh_word)
+            cos_sim = calculate_cosine_similarity(eng_wordvec, zh_wordvec)
+            entry = (sent_id, zh_word, eng_trans, cos_sim)
+            cos_sim_list_noncswords.append(entry)
+
+    return cos_sim_list_cswords, cos_sim_list_noncswords
 
 def save_cos_similarity(output_file, cos_sim_list):
     with open(output_file, 'w', newline='') as csvf:
         writer = csv.writer(csvf)
         writer.writerows(cos_sim_list)
+
+def euclidean_distance(vec1, vec2):
+    return np.linalg.norm(vec1 - vec2)
 
 def eng_wordlen_calculator(original_file_path):
     eng_words = word_collector(original_file_path)[0]
@@ -227,15 +310,25 @@ def eng_word_freq_generator(original_file_path, corpus_file_path):
 if __name__ == "__main__":
     original_file_path = '/Users/yanting/Desktop/cs/data/original1476.csv'
     eng_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/wiki.en.align.vec'
+    eng_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/eng_kdtree.pkl'
     zh_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/wiki.zh.align.vec'
+    zh_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/zh_kdtree.pkl'
+    test_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/test.vec'
+    test_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/test_kdtree.pkl'
     
+
     # eng_words, trans_words, zh_words = word_collector(original_file_path)
     # eng_vec_dict = eng_vector_finder_easy(original_file_path, eng_word_vec_path)
     # trans_vec_dict = trans_vector_finder(original_file_path, zh_word_vec_path)
     # eng_wordlen_dict = eng_wordlen_calculator(original_file_path)
     # pinyinlen_dict, charlen_dict = trans_wordlen_calculator(original_file_path)
-    cos_sim_list = gather_cos_similarity(original_file_path, eng_word_vec_path, zh_word_vec_path)
-    save_cos_similarity('/Users/yanting/Desktop/cs/word_vector/cosine_similarity.csv', cos_sim_list)
+    # cos_sim_list = gather_cos_similarity(original_file_path, eng_word_vec_path, zh_word_vec_path)
+    # save_cos_similarity('/Users/yanting/Desktop/cs/word_vector/cosine_similarity.csv', cos_sim_list)
+    eng_word_list, eng_word_vectors_array, eng_kdtree = create_KDtree(eng_word_vec_path)
+    # save_kdtree(zh_kdtree, zh_kdtree_path)
+    eng_results = calculate_vec_distance(eng_word_vec_path, 'eng')
+
+
 
 # code-switch,PSU,380,PSU_2600,小区 环境 优美 安静 ， 物业 非常 nice 。,小区 环境 优美 安静 ， 物业 非常 友善 。,8,nice,友善,40.69440709423323,3.261233,VA,3,conj,5.445959 4.471926 6.066541 6.265982 0.8755206 4.950842 4.628391 3.261233 0.3388186,4.0339125777777785,7.792737443373911,12.012245148550017,4,2,5,0,0,4.628391,3,2,3,2,9
 # non-code-switch,PSU,2600,PSU_380, ,房子 整洁 干净 ， 设施 很 好 。,7,,好,33.99205262349187,3.559633,VA,2,conj,5.512905 6.769275 2.024773 0.69897 4.819738 4.030354 3.559633 1.655329,3.633872125,,6.786498474836816,,1,5,0,0,4.030354,3,2,3,2,8

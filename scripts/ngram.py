@@ -46,14 +46,6 @@
 # ./lmplz -o 5 --text <tokenized_text_path> --skip_symbols --arpa <ngram_path>
 ## so all instances of <s>, </s>, and <unk> will be interpreted as whitespace.
 
-##############################
+## after having the .arpa file, use the following command within the bin/ directory to create the .binary file:
+# build_binary <.arpa_file_path> <.binary_file_path>
 
-# trying to use the trained ngrams to calculate probability
-# https://github.com/kpu/kenlm/blob/master/python/example.py
-# 5/22/2023
-
-import os
-import kenlm
-
-LM = os.path.join(os.path.dirname(__file__), '..', 'lm', 'test.arpa')
-model = kenlm.LanguageModel(LM)
