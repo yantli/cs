@@ -1,6 +1,7 @@
 word_vector/wiki.en.align.vec
 word_vector/wiki.zh.align.vec
 word_vector/*.pkl
+word_vector/*.zip
 ngram/
 word_freq/chinese/SUBTLEX-CH-WF.csv
 word_freq/english/imsdb_raw_nov_2015.zip

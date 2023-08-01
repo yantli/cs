@@ -14,6 +14,10 @@ import re
 from googletrans import Translator
 from scipy.spatial import KDTree
 import pickle
+import hanzidentifier
+import nltk
+from nltk.corpus import brown
+import random
 
 
 def save_whole_file(original_file_path):
@@ -37,6 +41,7 @@ def word_collector(original_file_path):
     eng_words = []
     trans_words = []
     zh_words = []
+    POS_trans = []
     with open(original_file_path, 'r', encoding = 'utf-8') as f:
         filereader = csv.reader(f, delimiter = ',')
         for row in filereader:
@@ -49,11 +54,12 @@ def word_collector(original_file_path):
                 zh_word = row[8]
                 zh_words.append(zh_word)
 
-    translator = Translator()
-    zh_words_trans = [translator.translate(word).text for word in zh_words]    
-    zh_words_trans = [word.lower() for word in zh_words_trans]
+    # translator = Translator()
+    # zh_words_trans = [translator.translate(word).text for word in zh_words]    
+    # zh_words_trans = [word.lower() for word in zh_words_trans]
     
-    return eng_words, trans_words, zh_words, zh_words_trans
+    # return eng_words, trans_words, zh_words, zh_words_trans
+    return eng_words, trans_words, zh_words, POS_trans
 
 def create_KDtree(word_vec_path):
     word_vectors = []
@@ -67,6 +73,7 @@ def create_KDtree(word_vec_path):
                 vec_idx = line.index(' '.join(line.split()[-300:]))
                 word = line[:vec_idx-1]
                 word_list.append(word)
+                # print(word)
     
     word_vectors_array = np.array(word_vectors)
     kdtree = KDTree(word_vectors_array)
@@ -78,44 +85,161 @@ def save_kdtree(word_vec_path, output_file):
     with open(output_file, 'wb') as f:
         pickle.dump(kdtree, f)
 
-def calculate_vec_distance(word_vec_path, lang):
+# when lang == "eng" or "zh", we are using monolingual kdtrees
+# when lang == "mixed_closest1", we are using combined kdtrees of both languages, and we are finding the closest vector in language B for vectors in language A
+# when lang == "mixed_closestcir", we are using combined kdtrees of both languages, and we are finding how many vectors in language B there are within a certain distance from the vector in language A
+# when lang == "mixed_ptp" (i.e. point-to-point), we are using combined kdtrees of both languages, and we are calculating the difference between the CS word pair
+# when passed_in_words is True, it means that we are passing in a specified list of words instead of using the lists from word_collector(original_file_path)
+def calculate_vec_distance(word_list, word_vectors_array, kdtree, lang, passed_in_words = None):
     results = []
-    eng_words = word_collector(original_file_path)[0]
-    zh_words = word_collector(original_file_path)[2]
-    traditional_zh_words = [chinese_converter.to_traditional(word) for word in zh_words]
-    word_list = create_KDtree(word_vec_path)[0]
-    word_vectors_array = create_KDtree(word_vec_path)[1]
-    kdtree = create_KDtree(word_vec_path)[2]
-    
-    if lang == 'eng':
-        for word in eng_words:
-            if word in word_list:
-                index = word_list.index(word)
-                query_vector = word_vectors_array[index]
-                distances, indices = kdtree.query(query_vector, k=6)
-                average_distance = sum(distances)/(len(distances)-1)
-                result = (word, index, average_distance, indices)
-            else:
-                result = (word)
-            results.append(result)
+    char_pattern = re.compile(r'[\u4e00-\u9fff]')
+    katakana_pattern = re.compile(r'[\u30a0-\u30ff]')
+    hiragana_pattern = re.compile(r'[\u3040-\u309f]')
 
-    if lang == 'zh':
+    if passed_in_words is None:
+        eng_words = word_collector(original_file_path)[0]
+        trans_words = word_collector(original_file_path)[1]
+        traditional_trans_words = [chinese_converter.to_traditional(word) for word in trans_words]
+        zh_words = word_collector(original_file_path)[2]
+        traditional_zh_words = [chinese_converter.to_traditional(word) for word in zh_words]
+        
+        uniq_eng_words = []
+        for word in eng_words:
+            if word not in uniq_eng_words:
+                uniq_eng_words.append(word)
+
+        uniq_zh_words = []
         for word in zh_words:
-            if word in word_list:
+            if word not in uniq_zh_words:
+                uniq_zh_words.append(word)
+        
+        uniq_traditional_zh_words = [chinese_converter.to_traditional(word) for word in uniq_zh_words]
+
+        if lang == 'eng':
+            for word in uniq_eng_words:
+                if word in word_list:
+                    index = word_list.index(word)
+                    # print(index)
+                    query_vector = word_vectors_array[index]
+                    distances, indices = kdtree.query(query_vector, k=11)
+                    # print(distances)
+                    average_distance = sum(distances)/(len(distances)-1)
+                    # print(average_distance)
+                    result = (word, index, average_distance, [index for index in indices])
+                    # print(result)
+                else:
+                    result = (word)
+                results.append(result)
+
+        if lang == 'zh':
+            for word in uniq_zh_words:
+                if word in word_list:
+                    index = word_list.index(word)
+                    query_vector = word_vectors_array[index]
+                    distances, indices = kdtree.query(query_vector, k=11)
+                    average_distance = sum(distances)/(len(distances)-1)
+                    result = (word, index, average_distance, [index for index in indices], 'simplified')
+                elif traditional_zh_words[zh_words.index(word)] in word_list:
+                    index = word_list.index(traditional_zh_words[zh_words.index(word)])
+                    query_vector = word_vectors_array[index]
+                    distances, indices = kdtree.query(query_vector, k=11)
+                    average_distance = sum(distances)/(len(distances)-1)
+                    result = (word, index, average_distance, [index for index in indices], traditional_zh_words[zh_words.index(word)])
+                else:
+                    result = (word)
+                results.append(result)                
+        
+        if lang == 'mixed_closest1':
+            for word in uniq_eng_words:
+                if word in word_list:
+                    index = word_list.index(word)
+                    # print(index)
+                    query_vector = word_vectors_array[index]
+                    distances, indices = kdtree.query(query_vector, k=5001)
+                    n = 0 
+                    while n < len(indices):
+                        if bool(char_pattern.search(word_list[indices[n]])) and not (katakana_pattern.search(word_list[indices[n]]) or hiragana_pattern.search(word_list[indices[n]])):
+                            matching_word = word_list[indices[n]]
+                            distance = distances[n]
+                            result = (word, matching_word, distance, n)
+                            results.append(result)
+                            break
+                        else:
+                            n += 1
+                    if n == len(indices):
+                        result = (word, "need more vectors")
+                        results.append(result)
+                        # print(result)
+                else:
+                    result = (word)
+                    results.append(result)
+
+        if lang == 'mixed_closestcir':
+            for word in uniq_eng_words:
+                if word in word_list:
+                    index = word_list.index(word)
+                    query_vector = word_vectors_array[index]
+                    distance_threshold = 1.1
+                    indices = kdtree.query_ball_point(query_vector, distance_threshold)
+                    ZH_neighbors = []
+                    for index in indices:
+                        if bool(char_pattern.search(word_list[index])) and not (katakana_pattern.search(word_list[index]) or hiragana_pattern.search(word_list[index])):
+                            ZH_neighbors.append(index)
+                    result = (word, len(ZH_neighbors), [word_list[n] for n in ZH_neighbors])
+                    # print(result)
+                    results.append(result)
+                else:
+                    result = (word)
+                    results.append(result)
+                    
+        if lang == 'mixed_ptp':
+            for n in range(len(eng_words)):
+                engword = eng_words[n]
+                transwordsimp = trans_words[n]
+                transwordtradi = traditional_trans_words[n]
+                if engword in word_list and (transwordsimp in word_list or transwordtradi in word_list):
+                    if transwordsimp in word_list:
+                        transword = transwordsimp
+                    else:
+                        transword = transwordtradi
+                    eng_index = word_list.index(engword)
+                    eng_vec = word_vectors_array[eng_index]
+                    trans_index = word_list.index(transword)
+                    trans_vec = word_vectors_array[trans_index]
+                    distance = vector_distance(eng_vec, trans_vec)
+                    result = (engword, transword, distance)
+                    # print(result)
+                    results.append(result)
+                else:
+                    result = (engword)
+                    results.append(result)
+
+    else:
+        for word in passed_in_words:
+            if word in passed_in_words:
                 index = word_list.index(word)
                 query_vector = word_vectors_array[index]
-                distances, indices = kdtree.query(query_vector, k=6)
-                average_distance = sum(distances)/(len(distances)-1)
-                result = (word, index, average_distance, indices, 'simplified')
-            elif traditional_zh_words[zh_words.index(word)] in word_list:
-                index = word_list.index(traditional_zh_words[zh_words.index(word)])
-                query_vector = word_vectors_array[index]
-                distances, indices = kdtree.query(query_vector, k=6)
-                average_distance = sum(distances)/(len(distances)-1)
-                result = (word, index, average_distance, indices, traditional_zh_words[zh_words.index(word)])
+                distances, indices = kdtree.query(query_vector, k=2000)
+                n = 0
+                while n < len(indices):
+                    if bool(char_pattern.search(word_list[indices[n]])) and not (katakana_pattern.search(word_list[indices[n]]) or hiragana_pattern.search(word_list[indices[n]])) and hanzidentifier.is_simplified(word_list[indices[n]]):
+                        matching_word = word_list[indices[n]]
+                        distance = distances[n]
+                        matching_word_index = word_list.index(matching_word)
+                        matching_word_query_vector = word_vectors_array[matching_word_index]
+                        cos_sim = calculate_cosine_similarity(query_vector, matching_word_query_vector)
+                        result = (word, matching_word, distance, n, cos_sim)
+                        results.append(result)
+                        break
+                    else:
+                        n += 1
+                if n == len(indices):
+                    result = (word, 'need more vectors')
+                    results.append(result)
             else:
                 result = (word)
-            results.append(result)                
+                results.append(result)
+
     return results
 
 # def eng_vector_finder(original_file_path, eng_word_vec_path):
@@ -270,12 +394,12 @@ def gather_cos_similarity(original_file_path, eng_word_vec_path, zh_word_vec_pat
 
     return cos_sim_list_cswords, cos_sim_list_noncswords
 
-def save_cos_similarity(output_file, cos_sim_list):
+def save_csv(output_file, list_to_save):
     with open(output_file, 'w', newline='') as csvf:
         writer = csv.writer(csvf)
-        writer.writerows(cos_sim_list)
+        writer.writerows(list_to_save)
 
-def euclidean_distance(vec1, vec2):
+def vector_distance(vec1, vec2):
     return np.linalg.norm(vec1 - vec2)
 
 def eng_wordlen_calculator(original_file_path):
@@ -302,18 +426,106 @@ def eng_word_freq_generator(original_file_path, corpus_file_path):
             print(line.split())
 
     
-    
     freq_dict = {}
 
     return freq_dict
 
+def get_random_words_nltk(word_type, num_to_pick):
+    top_list = []
+    nltk.download('brown')
+    nltk.download('averaged_perceptron_tagger')
+    corpus = brown.words()
+    word_list = [word for (word, pos) in nltk.pos_tag(corpus) if pos.startswith(word_type)]
+    top_words = nltk.FreqDist(word_list).most_common(num_to_pick)
+    for word, frequency in top_words:
+        top_list.append(word)
+
+    return top_list
+
+def get_random_words_corpus():
+    non_cs_lines = save_whole_file(original_file_path)[2]
+    trans_words = word_collector(original_file_path)[1]
+    
+    all_noncs_words = []
+    for line in non_cs_lines:
+        for word in line[5].split():
+            if word not in all_noncs_words:
+                all_noncs_words.append(word)
+    zh_vocab = [word for word in all_noncs_words if word not in trans_words and hanzidentifier.is_simplified(word)]
+
+    vocab_dict = {}
+    translator = Translator()
+    for zh_word in zh_vocab:
+        if len(translator.translate(zh_word).text.split()) == 1:
+            vocab_dict[zh_word] = translator.translate(zh_word).text.lower()
+    
+    eng_word_pool = [word for word in set(vocab_dict.values())]
+    random_eng_words = random.sample(eng_word_pool, 220)
+
+    return random_eng_words
+ 
+def load_dict(dict_file):
+    with open(dict_file, 'r', encoding = 'utf-8') as f:
+        lines = f.readlines()
+    dictionary = {}
+    for i in range(len(lines)):
+        pair = lines[i].split()
+        eng = pair[0]
+        zh = pair[1]
+        dictionary[eng] = zh
+    return dictionary
+
+def create_extended_corpus():
+    all_lines = save_whole_file(original_file_path)[0]
+    
+    # add line number to each line
+    n = 0
+    while n < len(all_lines):
+        all_lines[n].append(n+1)
+        n += 1
+    
+    # add cs_word_length to each line (for nonCS line, it will just be 0)
+    eng_pattern = re.compile(r'[a-zA-Z]+')
+    n = 0
+    while n < len(all_lines):
+        cs_word_idx = int(all_lines[n][6])
+        cs_sent = all_lines[n][4]
+        i = 0
+        while i < len(cs_sent.split()[cs_word_idx:]):
+            if not eng_pattern.search(cs_sent.split()[cs_word_idx:][i]):
+                break
+            i += 1
+        all_lines[n].append(i+1)
+        n += 2
+    m = 1
+    while m < len(all_lines):
+        all_lines[m].append(0)
+        m += 2
+
+    # for each cs sentence that has only 1 cs word, attach that word's Chinese translation (out of context) provided by chatGPT
+    gpt_dict = load_dict("/Users/yanting/Desktop/cs/data/gpt_dict.txt")
+    for line in all_lines:
+        if line[30] == 1:
+            trans = gpt_dict.get(line[7])
+            print(line[7],trans)
+        else:
+            trans = ''
+        line.append(trans)
+    
+    # for each non-cs sentence, attach the non-CS word's English translation (out of context) provided by chatGPT
+    
+
 if __name__ == "__main__":
     original_file_path = '/Users/yanting/Desktop/cs/data/original1476.csv'
-    eng_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/wiki.en.align.vec'
+    expanded_file_path = '/Users/yanting/Desktop/cs/data/expanded_corpus.csv'
+    # eng_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/wiki.en.align.vec'
+    eng_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/short_eng.vec'
     eng_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/eng_kdtree.pkl'
-    zh_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/wiki.zh.align.vec'
+    # zh_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/wiki.zh.align.vec'
+    zh_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/short_zh.vec'
     zh_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/zh_kdtree.pkl'
-    test_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/test.vec'
+    shared_vec_path = '/Users/yanting/Desktop/cs/word_vector/shared_30k.vec'
+    test_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/testeng.vec'
     test_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/test_kdtree.pkl'
     
 
@@ -325,8 +537,10 @@ if __name__ == "__main__":
     # cos_sim_list = gather_cos_similarity(original_file_path, eng_word_vec_path, zh_word_vec_path)
     # save_cos_similarity('/Users/yanting/Desktop/cs/word_vector/cosine_similarity.csv', cos_sim_list)
     eng_word_list, eng_word_vectors_array, eng_kdtree = create_KDtree(eng_word_vec_path)
+    zh_word_list, zh_word_vectors_array, zh_kdtree = create_KDtree(zh_word_vec_path)
     # save_kdtree(zh_kdtree, zh_kdtree_path)
-    eng_results = calculate_vec_distance(eng_word_vec_path, 'eng')
+    eng_results = calculate_vec_distance(eng_word_list, eng_word_vectors_array, eng_kdtree, 'eng')
+    zh_results = calculate_vec_distance(zh_word_list, zh_word_vectors_array, zh_kdtree, 'zh')
 
 
 
