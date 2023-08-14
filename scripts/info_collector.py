@@ -216,10 +216,10 @@ def calculate_vec_distance(word_list, word_vectors_array, kdtree, lang, passed_i
 
     else:
         for word in passed_in_words:
-            if word in passed_in_words:
+            if word in word_list:
                 index = word_list.index(word)
                 query_vector = word_vectors_array[index]
-                distances, indices = kdtree.query(query_vector, k=2000)
+                distances, indices = kdtree.query(query_vector, k=5000)
                 n = 0
                 while n < len(indices):
                     if bool(char_pattern.search(word_list[indices[n]])) and not (katakana_pattern.search(word_list[indices[n]]) or hiragana_pattern.search(word_list[indices[n]])) and hanzidentifier.is_simplified(word_list[indices[n]]):
@@ -394,10 +394,15 @@ def gather_cos_similarity(original_file_path, eng_word_vec_path, zh_word_vec_pat
 
     return cos_sim_list_cswords, cos_sim_list_noncswords
 
-def save_csv(output_file, list_to_save):
+def save_csv_w(output_file, list_to_save):
     with open(output_file, 'w', newline='') as csvf:
         writer = csv.writer(csvf)
         writer.writerows(list_to_save)
+
+def save_csv_a(output_file, tuple_to_save):
+        with open(output_file, 'a', newline='') as csvf:
+            writer = csv.writer(csvf, delimiter = ',')
+            writer.writerow(tuple_to_save)     
 
 def vector_distance(vec1, vec2):
     return np.linalg.norm(vec1 - vec2)
@@ -424,8 +429,7 @@ def eng_word_freq_generator(original_file_path, corpus_file_path):
         lines = f.readlines()
         for line in lines:
             print(line.split())
-
-    
+   
     freq_dict = {}
 
     return freq_dict
@@ -444,14 +448,13 @@ def get_random_words_nltk(word_type, num_to_pick):
 
 def get_random_words_corpus():
     non_cs_lines = save_whole_file(original_file_path)[2]
-    trans_words = word_collector(original_file_path)[1]
     
     all_noncs_words = []
     for line in non_cs_lines:
         for word in line[5].split():
             if word not in all_noncs_words:
                 all_noncs_words.append(word)
-    zh_vocab = [word for word in all_noncs_words if word not in trans_words and hanzidentifier.is_simplified(word)]
+    zh_vocab = [word for word in all_noncs_words if hanzidentifier.is_simplified(word) and word != '、']
 
     vocab_dict = {}
     translator = Translator()
@@ -460,10 +463,96 @@ def get_random_words_corpus():
             vocab_dict[zh_word] = translator.translate(zh_word).text.lower()
     
     eng_word_pool = [word for word in set(vocab_dict.values())]
-    random_eng_words = random.sample(eng_word_pool, 220)
 
-    return random_eng_words
+    # if we only want NN, include the following chunk:
+    # nltk.download('brown')
+    # nltk.download('averaged_perceptron_tagger')
+    # corpus = brown.words()
+    # brown_list = [word for (word, pos) in nltk.pos_tag(corpus) if pos.startswith(word_type)]
+    # NN_pool = [word for word in eng_word_pool if word in brown_list]
+
+    return eng_word_pool
+
+def collect_10k_random_samples(eng_word_pool, word_list, word_vectors_array, kdtree):    
+    means = []
+    while len(means) < 10000:
+        random_eng_words = random.sample(eng_word_pool, 220)
+        results = calculate_vec_distance(word_list, word_vectors_array, kdtree, 'mixed', passed_in_words = random_eng_words)
+        useful_results = [result for result in results if isinstance(result, tuple) and len(result) == 5]
+        if len(useful_results) >= 199:
+            sample = random.sample(useful_results, 199)
+            for item in sample:
+                tuple_to_write = item + (len(means)+1,)
+                save_csv_a('/Users/yanting/Desktop/cs/results/random_noncs_words.csv', tuple_to_write)
+            distances_str = [item[2] for item in sample]
+            distances = [float(x) for x in distances_str]
+            mean_distance = sum(distances)/len(distances)
+            cos_sims_str = [item[4] for item in sample]
+            cos_sims = [float(x) for x in cos_sims_str]  
+            mean_cos_sim = sum(cos_sims)/len(cos_sims)
+            result = (len(means)+1, mean_distance, mean_cos_sim)
+            save_csv_a('/Users/yanting/Desktop/cs/results/results_random_noncs_words.csv', result)
+            means.append(result)
+            print(len(means))
+        else:
+            print('abandon sample')
+
+    return means
  
+def get_matching_noncs_words_for_cs_words():
+    entire_file = []
+    with open(extended_file_path, 'r', encoding = 'utf-8') as f:
+        filereader = csv.reader(f, delimiter = ',')
+        for row in filereader:
+            entire_file.append(row)
+            all_sents = entire_file[1:]
+
+    matching_dict = {}
+    n = 0
+    while n < len(all_sents):
+        if all_sents[n][30] == '1':
+            cs_word = all_sents[n][7]
+            cs_pos = all_sents[n][11]
+            noncs_word = all_sents[n+1][8]
+
+            translator = Translator()
+            if len(translator.translate(noncs_word).text.split()) == 1:
+                key = cs_word + '-' + cs_pos
+                if key not in matching_dict.keys():
+                    matching_dict[key] = [translator.translate(noncs_word).text.lower()]
+                else:
+                    matching_dict[key].append(translator.translate(noncs_word).text.lower())
+        n += 2
+
+    matching_NN_dict = {}
+    for key, item in matching_dict.items():
+        if key[-2:] == 'NN':
+            matching_NN_dict[key] = item
+
+    return matching_dict, matching_NN_dict
+
+def collect_matching_noncswords_samples(matching_NN_dict, word_list, word_vectors_array, kdtree):    
+    keys = matching_NN_dict.keys()
+    cs_words = [item[:-3] for item in matching_NN_dict.keys()]
+    matching_noncs_words = []
+    for key in keys:
+        if len(matching_NN_dict.get(key)) == 1 and key != matching_NN_dict.get(key[:-3]):
+            matching_noncs_word = matching_NN_dict.get(key)[0]
+        elif len(matching_NN_dict.get(key)) > 1:
+            matching_pool = [word for word in matching_NN_dict.get(key) if word != key[:-3]]
+            matching_noncs_word = random.sample(matching_pool, 1)[0]
+        matching_noncs_words.append(matching_noncs_word)
+    
+    cs_results = calculate_vec_distance(word_list, word_vectors_array, kdtree, 'mixed', passed_in_words = cs_words)
+    noncs_results = calculate_vec_distance(word_list, word_vectors_array, kdtree, 'mixed', passed_in_words = matching_noncs_words)
+    
+    n = 0
+    while n < len(cs_results):
+        if isinstance(cs_results[n], tuple) and len(cs_results[n]) == 5 and isinstance(noncs_results[n], tuple) and len(noncs_results[n]) == 5:
+            combined_result = cs_results[n] + noncs_results[n]
+            save_csv_a('/Users/yanting/Desktop/cs/results/results_matching_NN5.csv', combined_result)
+        n += 1
+
 def load_dict(dict_file):
     with open(dict_file, 'r', encoding = 'utf-8') as f:
         lines = f.readlines()
@@ -517,7 +606,7 @@ def create_extended_corpus():
 
 if __name__ == "__main__":
     original_file_path = '/Users/yanting/Desktop/cs/data/original1476.csv'
-    expanded_file_path = '/Users/yanting/Desktop/cs/data/expanded_corpus.csv'
+    extended_file_path = '/Users/yanting/Desktop/cs/data/extended_gpt.csv'
     # eng_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/wiki.en.align.vec'
     eng_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/short_eng.vec'
     eng_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/eng_kdtree.pkl'
@@ -525,8 +614,8 @@ if __name__ == "__main__":
     zh_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/short_zh.vec'
     zh_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/zh_kdtree.pkl'
     shared_vec_path = '/Users/yanting/Desktop/cs/word_vector/shared_30k.vec'
-    test_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/testeng.vec'
-    test_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/test_kdtree.pkl'
+    # test_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/testeng.vec'
+    # test_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/test_kdtree.pkl'
     
 
     # eng_words, trans_words, zh_words = word_collector(original_file_path)
@@ -536,12 +625,18 @@ if __name__ == "__main__":
     # pinyinlen_dict, charlen_dict = trans_wordlen_calculator(original_file_path)
     # cos_sim_list = gather_cos_similarity(original_file_path, eng_word_vec_path, zh_word_vec_path)
     # save_cos_similarity('/Users/yanting/Desktop/cs/word_vector/cosine_similarity.csv', cos_sim_list)
-    eng_word_list, eng_word_vectors_array, eng_kdtree = create_KDtree(eng_word_vec_path)
-    zh_word_list, zh_word_vectors_array, zh_kdtree = create_KDtree(zh_word_vec_path)
+    # eng_word_list, eng_word_vectors_array, eng_kdtree = create_KDtree(eng_word_vec_path)
+    # zh_word_list, zh_word_vectors_array, zh_kdtree = create_KDtree(zh_word_vec_path)
+    # shared_word_list, shared_word_vectors_array, shared_kdtree = create_KDtree(shared_vec_path)
     # save_kdtree(zh_kdtree, zh_kdtree_path)
-    eng_results = calculate_vec_distance(eng_word_list, eng_word_vectors_array, eng_kdtree, 'eng')
-    zh_results = calculate_vec_distance(zh_word_list, zh_word_vectors_array, zh_kdtree, 'zh')
-
+    # eng_results = calculate_vec_distance(eng_word_list, eng_word_vectors_array, eng_kdtree, 'eng')
+    # zh_results = calculate_vec_distance(zh_word_list, zh_word_vectors_array, zh_kdtree, 'zh')
+    
+    eng_word_pool = get_random_words_corpus()
+    print('random_word_list_ready')
+    shared_word_list, shared_word_vectors_array, shared_kdtree = create_KDtree(shared_vec_path)
+    print('kdtree ready')
+    means = collect_10k_random_samples(eng_word_pool,shared_word_list, shared_word_vectors_array, shared_kdtree)
 
 
 # code-switch,PSU,380,PSU_2600,小区 环境 优美 安静 ， 物业 非常 nice 。,小区 环境 优美 安静 ， 物业 非常 友善 。,8,nice,友善,40.69440709423323,3.261233,VA,3,conj,5.445959 4.471926 6.066541 6.265982 0.8755206 4.950842 4.628391 3.261233 0.3388186,4.0339125777777785,7.792737443373911,12.012245148550017,4,2,5,0,0,4.628391,3,2,3,2,9
