@@ -2,6 +2,7 @@ word_vector/wiki.en.align.vec
 word_vector/wiki.zh.align.vec
 word_vector/*.pkl
 word_vector/*.zip
+results/random_noncs_words.csv
 ngram/
 literature/
 word_freq/chinese/SUBTLEX-CH-WF.csv
@@ -14,6 +15,9 @@ word_freq/chinese/SUBTLEX-CH-WF.csv
 *.jpeg
 *.key
 .DS_Store
+*.zip
+stanford-segmenter-2020-11-17/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

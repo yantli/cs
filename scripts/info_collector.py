@@ -219,7 +219,7 @@ def calculate_vec_distance(word_list, word_vectors_array, kdtree, lang, passed_i
             if word in word_list:
                 index = word_list.index(word)
                 query_vector = word_vectors_array[index]
-                distances, indices = kdtree.query(query_vector, k=5000)
+                distances, indices = kdtree.query(query_vector, k=10000)
                 n = 0
                 while n < len(indices):
                     if bool(char_pattern.search(word_list[indices[n]])) and not (katakana_pattern.search(word_list[indices[n]]) or hiragana_pattern.search(word_list[indices[n]])) and hanzidentifier.is_simplified(word_list[indices[n]]):
@@ -550,7 +550,7 @@ def collect_matching_noncswords_samples(matching_NN_dict, word_list, word_vector
     while n < len(cs_results):
         if isinstance(cs_results[n], tuple) and len(cs_results[n]) == 5 and isinstance(noncs_results[n], tuple) and len(noncs_results[n]) == 5:
             combined_result = cs_results[n] + noncs_results[n]
-            save_csv_a('/Users/yanting/Desktop/cs/results/results_matching_NN5.csv', combined_result)
+            save_csv_a('/Users/yanting/Desktop/cs/results/results_matching_NN6.csv', combined_result)
         n += 1
 
 def load_dict(dict_file):
@@ -613,7 +613,7 @@ if __name__ == "__main__":
     # zh_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/wiki.zh.align.vec'
     zh_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/short_zh.vec'
     zh_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/zh_kdtree.pkl'
-    shared_vec_path = '/Users/yanting/Desktop/cs/word_vector/shared_30k.vec'
+    shared_vec_path = '/Users/yanting/Desktop/cs/word_vector/shared_30k_engzh.vec'
     # test_word_vec_path = '/Users/yanting/Desktop/cs/word_vector/testeng.vec'
     # test_kdtree_path = '/Users/yanting/Desktop/cs/word_vector/test_kdtree.pkl'
     
