@@ -27,7 +27,7 @@ def sort_sents(original_tsv_file):
         uttlang = [entry[9] for entry in allsents if entry[1]==str(n)]
         if 'spa' in uttlang and 'eng' in uttlang:
             cs_sents.append(utt)
-        elif 'eng&spa+eng' or 'eng&spa' in utt:
+        elif 'eng&spa+eng' in utt or 'eng&spa' in utt:
             undefined_sents.append(utt)
         else:
             non_cs_sents.append(utt)

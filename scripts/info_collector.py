@@ -41,7 +41,6 @@ def word_collector(original_file_path):
     eng_words = []
     trans_words = []
     zh_words = []
-    POS_trans = []
     with open(original_file_path, 'r', encoding = 'utf-8') as f:
         filereader = csv.reader(f, delimiter = ',')
         for row in filereader:
@@ -59,7 +58,7 @@ def word_collector(original_file_path):
     # zh_words_trans = [word.lower() for word in zh_words_trans]
     
     # return eng_words, trans_words, zh_words, zh_words_trans
-    return eng_words, trans_words, zh_words, POS_trans
+    return eng_words, trans_words, zh_words, 
 
 def create_KDtree(word_vec_path):
     word_vectors = []

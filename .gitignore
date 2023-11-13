@@ -17,6 +17,10 @@ word_freq/chinese/SUBTLEX-CH-WF.csv
 .DS_Store
 *.zip
 stanford-segmenter-2020-11-17/
+data/zeroth/
+stanford-corenlp-4.5.5/
+stanford-parser-2021-05-05/
+stanford-postagger-full-2020-11-17/
 
 
 # Byte-compiled / optimized / DLL files

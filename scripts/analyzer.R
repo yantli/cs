@@ -96,20 +96,22 @@ load_data <- function(file) {
   return(data)
 }
 
-csdata <- load_data("/Users/yanting/Desktop/cs/results/csNN_closest_zhneighbor_simp.csv")
-csdata$distance <- as.numeric(csdata$distance)
-csdata$cos_sim <- as.numeric(csdata$cos_sim)
-mean(csdata$distance)
-mean(csdata$cos_sim)
+# csdata <- load_data("/Users/yanting/Desktop/cs/results/csNN_closest_zhneighbor_simp.csv")
+csnoun <- load_data("/Users/yanting/Desktop/cs/results/ascend_csNNSingleMulti_closest_zhneighbor_simp.csv")
+csnoun$distance <- as.numeric(csnoun$distance)
+csnoun$cos_sim <- as.numeric(csnoun$cos_sim)
+dismean_csnoun <- mean(csnoun$distance, na.rm = TRUE)
+cosmean_csnoun <- mean(csnoun$cos_sim, na.rm = TRUE)
 
-noncsdata <- load_data("/Users/yanting/Desktop/cs/results/random_noncs_words_uniq1425.csv")
-noncsdata$distance <- as.numeric(noncsdata$distance)
-noncsdata$cos_sim <- as.numeric(noncsdata$cos_sim)
-mean(noncsdata$distance)
-mean(noncsdata$cos_sim)
+# noncsword <- load_data("/Users/yanting/Desktop/cs/results/random_noncs_words_uniq1425.csv")
+noncsword <- load_data("/Users/yanting/Desktop/cs/results/ascend_noncsWORD_closest_zhneighbor_simp.csv")
+noncsword$distance <- as.numeric(noncsword$distance)
+noncsword$cos_sim <- as.numeric(noncsword$cos_sim)
+mean(noncsword$distance, na.rm = TRUE)
+mean(noncsword$cos_sim, na.rm = TRUE)
 
-combined_data <- bind_rows(csdata %>% mutate(Source = "cs"),
-                           noncsdata %>% mutate(Source = "noncs"))
+combined_data <- bind_rows(csnoun %>% mutate(Source = "cs"),
+                           noncsword %>% mutate(Source = "noncs"))
 ggplot(combined_data, aes(x = Source, y = distance)) +
   geom_boxplot() +
   labs(x = "Source", y = "distance") 
@@ -119,7 +121,8 @@ ggplot(combined_data, aes(x = Source, y = cos_sim)) +
 
 
 # bootstrapping based on the 1425 uniq non cs words:
-boot_distance <- boot(noncsdata$distance,function(u,i) mean(u[i]),R=1000)
+filtered_noncsword <- noncsword %>% filter(complete.cases(.))
+boot_distance <- boot(filtered_noncsword$distance,function(u,i) mean(u[i]),R=1000)
 boot_dis_result <- boot.ci(boot_distance,type=c("norm","basic","perc"))
 lapply(boot_dis_result, function(ci) format(ci, digits = 10))
 
@@ -136,19 +139,19 @@ ggplot(data = data.frame(Values = boot_dis_values), aes(x = Values)) +
   theme_minimal()
 p1<-ggplot(data.frame(Values = boot_dis_values), aes(x = Values)) +
   geom_density(color = "blue") +
-  geom_point(data = data.frame(x = 1.0626897), aes(x, y = 0.01), color = "red", size = 5) +
+  geom_point(data = data.frame(x = dismean_csnoun), aes(x, y = 0.01), color = "red", size = 5) +
   labs(y = "Density", x = 'Distance', title = "Density plot of bootstrapped mean distance") +
   theme_bw() + theme(axis.text.x=element_text(size=12), axis.title=element_text(size=12), axis.text.y=element_text(size=12))
 
 
-boot_cos_sim <- boot(noncsdata$cos_sim,function(u,i) mean(u[i]),R=1000)
+boot_cos_sim <- boot(filtered_noncsword$cos_sim,function(u,i) mean(u[i]),R=1000)
 boot_dis_result <- boot.ci(boot_cos_sim,type=c("norm","basic","perc"))
 lapply(boot_dis_result, function(ci) format(ci, digits = 10))
 
 boot_cos_values <- boot_cos_sim$t
 p2<-ggplot(data.frame(Values = boot_cos_values), aes(x = Values)) +
   geom_density(color = "purple") +
-  geom_point(data = data.frame(x = 0.4334456744), aes(x, y = 0.01), color = "red", size = 5) +
+  geom_point(data = data.frame(x = cosmean_csnoun), aes(x, y = 0.01), color = "red", size = 5) +
   labs(y = "Density", x = 'Cosine similarity', title = "Density plot of bootstrapped mean cosine similarity") +
   theme_bw() + theme(axis.text.x=element_text(size=12), axis.title=element_text(size=12), axis.text.y=element_text(size=12))
 
